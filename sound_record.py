@@ -1,13 +1,10 @@
 import sounddevice as sd
 import soundfile as sf
 import asyncio
-import whisper
 import os
 from asyncio import Queue
 import numpy as np
-from openai import AsyncOpenAI,OpenAI
-from openai.types.audio import Transcription
-import openai
+from openai import AsyncOpenAI
 import time
 
 audio_queue = Queue()
@@ -50,31 +47,24 @@ async def record_audio(filename, duration, fs=48000):
             recording = True
             stream.start()  # Добавление данных в буфер
             start_time = time.time()
-            print(f'Начало записи куска {time.time() - start_time}')
         elif recording:
             # Логика завершения записи
             if silence:
                 if silence_start_time is None:
                     silence_start_time = time.time()
-                    print('начало тишины в записи')
                 elif time.time() - silence_start_time > 2:
                     # Тишина длится более 2 секунд
-                    print('Добавляем тишину')
                     break
             else:
                 silence_start_time = None
-
             if time.time() - start_time > 5:
-                print('Прошло 5 сек')
                 break
-
     # Сохранение записи в файл
     stream.stop()
     stream.close()
     concatenated_audio = np.concatenate(audio_buffer, axis=0)
     sf.write(filename, concatenated_audio, fs)
     audio_queue.put_nowait(filename)
-
 
 async def transcribe_audio(queue):
     while True:
@@ -100,7 +90,6 @@ async def continuous_recording():
         filename = f"audio_segment_{segment}.wav"
         await record_audio(filename, 10)
         segment += 1
-
 
 async def get_answer_ai(text_to_send):
     text_response = await client.completions.create(
