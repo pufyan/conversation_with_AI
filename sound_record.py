@@ -16,13 +16,12 @@ input_device = 1 # Указываем источник аудио
 output_device = 5 # Указываем выход аудио
 SILENCE_THRESHOLD = 0.01
 
-api_key = "Your OpenAI API"
+api_key = ""
 client = AsyncOpenAI(api_key=api_key)
 
 async def is_silence(audio_chunk):
     """Проверяет, превышает ли амплитуда пороговое значение."""
-    print(np.sqrt(np.mean(audio_chunk**2)))
-    return np.sqrt(np.mean(audio_chunk**2)) < SILENCE_THRESHOLD
+    return np.max(np.abs(audio_chunk)) < SILENCE_THRESHOLD
 
 
 async def record_audio(filename, duration, fs=48000):
