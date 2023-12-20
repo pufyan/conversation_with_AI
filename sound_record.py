@@ -28,17 +28,16 @@ async def record_audio(filename, duration, fs=48000):
         audio_buffer.append(indata.copy())
 
     # Подготовка для записи
-    sound_device = 1
     channels = 2
     recording = False
     silence_start_time = None
     start_time = None
     audio_buffer = []
-    stream = sd.InputStream(samplerate=fs, channels=channels, callback=callback)
+    stream = sd.InputStream(samplerate=fs, channels=channels, callback=callback, device=input_device)
 
     while True:
         # Чтение данных с микрофона
-        audio_chunk = sd.rec(int(0.1 * fs), samplerate=fs, channels=channels, device=sound_device, blocking=False)
+        audio_chunk = sd.rec(int(0.1 * fs), samplerate=fs, channels=channels, device=input_device, blocking=False)
         await asyncio.sleep(0.1)
         # Определение тишины
         silence = await is_silence(audio_chunk)
