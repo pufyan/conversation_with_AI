@@ -9,12 +9,30 @@ import time
 
 audio_queue = Queue()
 text_queue = Queue()
-input_device = 1 # Указываем источник аудио
-output_device = 5 # Указываем выход аудио
-SILENCE_THRESHOLD = 0.01
 
-api_key = ""
+#    0 Microsoft Sound Mapper - Input, MME (2 in, 0 out)
+# >  1 CABLE Output (VB-Audio Virtual , MME (2 in, 0 out)
+#    2 Microsoft Sound Mapper - Output, MME (0 in, 2 out)
+# <  3 CABLE Input (VB-Audio Virtual C, MME (0 in, 2 out)
+#    4 Primary Sound Capture Driver, Windows DirectSound (2 in, 0 out)
+#    5 CABLE Output (VB-Audio Virtual Cable), Windows DirectSound (2 in, 0 out)
+#    6 Primary Sound Driver, Windows DirectSound (0 in, 2 out)
+#    7 CABLE Input (VB-Audio Virtual Cable), Windows DirectSound (0 in, 2 out)
+#    8 CABLE Input (VB-Audio Virtual Cable), Windows WASAPI (0 in, 2 out)
+#    9 CABLE Output (VB-Audio Virtual Cable), Windows WASAPI (2 in, 0 out)
+#   10 CABLE Output (VB-Audio Point), Windows WDM-KS (8 in, 0 out)
+#   11 Speakers (VB-Audio Point), Windows WDM-KS (0 in, 8 out)
+
+INPUT_DEVICE = 1
+OUTPUT_DEVICE = 3
+
+SILENCE_THRESHOLD = 0.01
+SILENCE_DURATION = 0.5
+RECORD_DURATION = 4
+
+api_key = os.getenv("OPENAI_API_KEY")
 client = AsyncOpenAI(api_key=api_key)
+
 
 async def is_silence(audio_chunk):
     """Проверяет, превышает ли амплитуда пороговое значение."""
@@ -33,11 +51,11 @@ async def record_audio(filename, duration, fs=48000):
     silence_start_time = None
     start_time = None
     audio_buffer = []
-    stream = sd.InputStream(samplerate=fs, channels=channels, callback=callback, device=input_device)
+    stream = sd.InputStream(samplerate=fs, channels=channels, callback=callback, device=INPUT_DEVICE)
 
     while True:
         # Чтение данных с микрофона
-        audio_chunk = sd.rec(int(0.1 * fs), samplerate=fs, channels=channels, device=input_device, blocking=False)
+        audio_chunk = sd.rec(int(0.1 * fs), samplerate=fs, channels=channels, device=INPUT_DEVICE, blocking=False)
         await asyncio.sleep(0.1)
         # Определение тишины
         silence = await is_silence(audio_chunk)
@@ -51,12 +69,14 @@ async def record_audio(filename, duration, fs=48000):
             if silence:
                 if silence_start_time is None:
                     silence_start_time = time.time()
-                elif time.time() - silence_start_time > 2:
+                elif time.time() - silence_start_time > SILENCE_DURATION:
                     # Тишина длится более 2 секунд
+                    audio_queue.put_nowait('STOP')
                     break
+
             else:
                 silence_start_time = None
-            if time.time() - start_time > 5:
+            if time.time() - start_time > RECORD_DURATION:
                 break
     # Сохранение записи в файл
     stream.stop()
@@ -65,23 +85,33 @@ async def record_audio(filename, duration, fs=48000):
     sf.write(filename, concatenated_audio, fs)
     audio_queue.put_nowait(filename)
 
+
 async def transcribe_audio(queue):
+    result = ''
     while True:
         filename = await queue.get()
-        print(f"Начинаю транскрибацию файла {filename}.")
-        with open(filename, "rb") as audio_file:
-            transcript = await client.audio.transcriptions.create(file=audio_file, language='ru', model="whisper-1")
-        print(transcript.text)
-        result = transcript.text
+        if filename == 'STOP':
+            answer_text = await get_answer_ai(result)
+            print('answer_text: ', answer_text)
+            await play(answer_text)
+            # with open(f"{filename}.txt", 'w') as file:
+            #     file.write(result)
 
-        if result != '':
-            #await get_answer_ai(result)
-            with open(f"{filename}.txt", 'w') as file:
-                file.write(result)
-        print(f"Транскрибация файла {filename} завершена: {result}")
-        #os.remove(filename)  # Удаляем файл после транскрибации
-        print('удалил')
+            result = ''
+            continue
+
+        else:
+            print(f"Начинаю транскрибацию файла {filename}.")
+            with open(filename, "rb") as audio_file:
+                transcript = await client.audio.transcriptions.create(file=audio_file, language='ru', model="whisper-1")
+            print(transcript.text)
+            result += transcript.text
+
+            print(f"Транскрибация файла {filename} завершена: {result}")
+            os.remove(filename)  # Удаляем файл после транскрибации
+            print('удалил')
         queue.task_done()
+
 
 async def continuous_recording():
     segment = 1
@@ -90,28 +120,40 @@ async def continuous_recording():
         await record_audio(filename, 10)
         segment += 1
 
-async def get_answer_ai(text_to_send):
-    text_response = await client.completions.create(
-        model="text-davinci-003",  # Или другая модель GPT
-        prompt=text_to_send,  # Используем текст из файла как входной запрос
-        max_tokens=500
-    )
-    answer_text = text_response.choices[0].text
 
+SYSTEM_PROMPT = ''''''
+
+
+async def play(text):
     # Преобразование текстового ответа в речь
     audio_response = await client.audio.speech.create(
         model="tts-1",
-        input=answer_text,
-        voice="alloy",  # Вы можете выбрать другие голоса
+        input=text,
+        # voice="alloy",  # Вы можете выбрать другие голоса
+        voice="nova",
         response_format="opus"  # Формат аудиофайла
     )
     with open("response.opus", "wb") as file:
         file.write(audio_response.read())
 
     data, fs = sf.read("response.opus", dtype='float32')
-    sd.play(data, fs, device=output_device)
+    sd.play(data, fs, device=OUTPUT_DEVICE)
     sd.wait()
     os.remove("response.opus")
+
+
+async def get_answer_ai(text_to_send):
+    # return 'This is a test answer'
+    messages = [{'content': text_to_send, 'role': 'user'}]
+    response = await client.chat.completions.create(
+        messages=messages,
+        model='gpt-3.5-turbo',
+        # model='gpt-4-1106-preview'
+    )
+    answer = response.choices[0].message.content
+    print('answer: ', answer)
+    return answer
+
 
 async def main():
     transcription_task = asyncio.create_task(transcribe_audio(audio_queue))
