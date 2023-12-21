@@ -7,21 +7,27 @@ import numpy as np
 from openai import AsyncOpenAI
 import time
 
-audio_queue = Queue()
-text_queue = Queue()
-input_device = 1 # Указываем источник аудио
-output_device = 5 # Указываем выход аудио
-SILENCE_THRESHOLD = 0.01
+
+INPUT_DEVICE = 1 # Источник аудио
+OUTPUT_DEVICE = 3 # Выход аудио
+SILENCE_THRESHOLD = 0.05 # Порог тишины
+LENGTH_FILE_RECORD = 5 # Длинна записи файла для транскрибации
+LENGTH_SILENCE_IN_FILE = 1.5 # Длинна тишины, после которой запись файла останавливается
 
 api_key = ""
 client = AsyncOpenAI(api_key=api_key)
 
+audio_queue = Queue()
+text_queue = Queue()
+
+
 async def is_silence(audio_chunk):
     """Проверяет, превышает ли амплитуда пороговое значение."""
+    print(np.max(np.abs(audio_chunk)))
     return np.max(np.abs(audio_chunk)) < SILENCE_THRESHOLD
 
 
-async def record_audio(filename, duration, fs=48000):
+async def record_audio(filename):
     def callback(indata, frames, time, status):
         if status:
             print(status)
@@ -29,41 +35,45 @@ async def record_audio(filename, duration, fs=48000):
 
     # Подготовка для записи
     channels = 2
+    fs = 48000
     recording = False
     silence_start_time = None
     start_time = None
     audio_buffer = []
-    stream = sd.InputStream(samplerate=fs, channels=channels, callback=callback, device=input_device)
+    stream = sd.InputStream(samplerate=fs, channels=channels, callback=callback, device=INPUT_DEVICE)
 
     while True:
         # Чтение данных с микрофона
-        audio_chunk = sd.rec(int(0.1 * fs), samplerate=fs, channels=channels, device=input_device, blocking=False)
-        await asyncio.sleep(0.1)
+        audio_chunk = sd.rec(int(0.05 * fs), samplerate=fs, channels=channels, device=INPUT_DEVICE, blocking=False)
+        await asyncio.sleep(0.05)
         # Определение тишины
         silence = await is_silence(audio_chunk)
         # Логика начала записи
         if not recording and not silence:
             recording = True
             stream.start()  # Добавление данных в буфер
+            print(f'Начинаю запись {filename}')
             start_time = time.time()
         elif recording:
             # Логика завершения записи
+
             if silence:
                 if silence_start_time is None:
                     silence_start_time = time.time()
-                elif time.time() - silence_start_time > 2:
-                    # Тишина длится более 2 секунд
+                elif time.time() - silence_start_time > LENGTH_SILENCE_IN_FILE:
+                    # Тишина длится более LENGTH_SILENCE_IN_FILE секунд
                     break
             else:
                 silence_start_time = None
-            if time.time() - start_time > 5:
+            if time.time() - start_time > LENGTH_FILE_RECORD:
                 break
     # Сохранение записи в файл
     stream.stop()
     stream.close()
+    print(f'Закончил запись {filename}')
     concatenated_audio = np.concatenate(audio_buffer, axis=0)
     sf.write(filename, concatenated_audio, fs)
-    audio_queue.put_nowait(filename)
+    await audio_queue.put(filename)
 
 async def transcribe_audio(queue):
     while True:
@@ -86,11 +96,12 @@ async def async_trans(filename):
     print(f"Транскрибация файла {filename} завершена за {time.time() - trans_start_time} сек.")
     # os.remove(filename)  # Удаляем файл после транскрибации
 
+
 async def continuous_recording():
     segment = 1
     while True:
         filename = f"audio_segment_{segment}.wav"
-        await record_audio(filename, 10)
+        await record_audio(filename)
         segment += 1
 
 async def get_answer_ai(text_to_send):
@@ -112,7 +123,7 @@ async def get_answer_ai(text_to_send):
         file.write(audio_response.read())
 
     data, fs = sf.read("response.opus", dtype='float32')
-    sd.play(data, fs, device=output_device)
+    sd.play(data, fs, device=OUTPUT_DEVICE)
     sd.wait()
     os.remove("response.opus")
 
