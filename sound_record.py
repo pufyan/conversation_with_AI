@@ -27,7 +27,8 @@ SILENCE_THRESHOLD = 0.05
 SILENCE_DURATION = 0.5
 RECORD_DURATION = 4
 
-api_key = os.getenv("OPENAI_API_KEY")
+#api_key = os.getenv("OPENAI_API_KEY")
+api_key ="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"
 client = AsyncOpenAI(api_key=api_key)
 
 audio_queue = Queue()
@@ -35,7 +36,7 @@ audio_queue = Queue()
 
 async def is_silence(audio_chunk):
     """Проверяет, превышает ли амплитуда пороговое значение."""
-    #print(np.max(np.abs(audio_chunk)))
+    print(np.max(np.abs(audio_chunk)))
     return np.max(np.abs(audio_chunk)) < SILENCE_THRESHOLD
 
 async def record_audio(filename):
@@ -107,9 +108,12 @@ async def transcribe_audio(queue):
                 transcript = await client.audio.transcriptions.create(file=audio_file, language='ru', model="whisper-1")
             print(transcript.text)
             result += transcript.text
-
             print(f"Транскрибация файла {filename} завершена за {time.time() - trans_start_time} сек.")
             os.remove(filename)  # Удаляем файл после транскрибации
+
+            answer_text = await get_answer_ai(result)
+            print('answer_text: ', answer_text)
+            await play(answer_text)
 
         queue.task_done()
 
