@@ -91,10 +91,11 @@ async def transcribe_audio(queue):
     async def async_trans(filename):
         trans_start_time = time.time()
         nonlocal result
+
         if filename == 'STOP':
-            answer_text = await get_answer_ai(result)
-            print('answer_text: ', answer_text)
-            await play(answer_text)
+            #answer_text = await get_answer_ai(result)
+            #print('answer_text: ', answer_text)
+            #await play(answer_text)
             # with open(f"{filename}.txt", 'w') as file:
             #     file.write(result)
 
@@ -110,9 +111,9 @@ async def transcribe_audio(queue):
             print(f"Транскрибация файла {filename} завершена за {time.time() - trans_start_time} сек.")
             os.remove(filename)  # Удаляем файл после транскрибации
 
-            answer_text = await get_answer_ai(result)
-            print('answer_text: ', answer_text)
-            await play(answer_text)
+        answer_text = await get_answer_ai(result)
+        print('answer_text: ', answer_text)
+        await play(answer_text)
 
         queue.task_done()
 
