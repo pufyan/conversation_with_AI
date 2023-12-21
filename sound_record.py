@@ -68,20 +68,23 @@ async def record_audio(filename, duration, fs=48000):
 async def transcribe_audio(queue):
     while True:
         filename = await queue.get()
-        print(f"Начинаю транскрибацию файла {filename}.")
-        with open(filename, "rb") as audio_file:
-            transcript = await client.audio.transcriptions.create(file=audio_file, language='ru', model="whisper-1")
-        print(transcript.text)
-        result = transcript.text
+        asyncio.create_task(async_trans(filename))
 
-        if result != '':
-            #await get_answer_ai(result)
-            with open(f"{filename}.txt", 'w') as file:
-                file.write(result)
-        print(f"Транскрибация файла {filename} завершена: {result}")
-        #os.remove(filename)  # Удаляем файл после транскрибации
-        print('удалил')
-        queue.task_done()
+async def async_trans(filename):
+    trans_start_time = time.time()
+    print(f"Начинаю транскрибацию файла {filename}.")
+    with open(filename, "rb") as audio_file:
+        transcript = await client.audio.transcriptions.create(file=audio_file, language='ru', model="whisper-1")
+    print(transcript.text)
+    result = transcript.text
+
+    if result != '':
+        # await get_answer_ai(result)
+        with open(f"{filename}.txt", 'w') as file:
+            file.write(result)
+
+    print(f"Транскрибация файла {filename} завершена за {time.time() - trans_start_time} сек.")
+    # os.remove(filename)  # Удаляем файл после транскрибации
 
 async def continuous_recording():
     segment = 1
