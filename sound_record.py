@@ -27,8 +27,7 @@ SILENCE_THRESHOLD = 0.05
 SILENCE_DURATION = 0.5
 RECORD_DURATION = 4
 
-#api_key = os.getenv("OPENAI_API_KEY")
-api_key ="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"
+api_key = os.getenv("OPENAI_API_KEY")
 client = AsyncOpenAI(api_key=api_key)
 
 audio_queue = Queue()
