@@ -39,7 +39,7 @@ audio_queue = Queue()
 
 async def is_silence(audio_chunk):
     """Проверяет, превышает ли амплитуда пороговое значение."""
-    print(np.max(np.abs(audio_chunk)))
+    # print(np.max(np.abs(audio_chunk)))
     return np.max(np.abs(audio_chunk)) < SILENCE_THRESHOLD
 
 
@@ -162,8 +162,8 @@ async def get_answer_ai(text_to_send):
     messages = [{'content': text_to_send, 'role': 'user'}]
     response = await client.chat.completions.create(
         messages=messages,
-        model='gpt-3.5-turbo',
-        # model='gpt-4-1106-preview'
+        # model='gpt-3.5-turbo',
+        model='gpt-4-1106-preview'
     )
     answer = response.choices[0].message.content
     print('answer: ', answer)
