@@ -3,17 +3,18 @@
 # pip install openai numpy sounddevice soundfile asyncio python-dotenv
 
 import multiprocessing
-import wave
 import os
 import time
-import queue
 from uuid import uuid1
 import sounddevice as sd
 import soundfile as sf
-import asyncio
+import json
 from openai import OpenAI
 import numpy as np
 import shutil
+
+from dotenv import load_dotenv
+load_dotenv()
 
 INPUT_DEVICE = 1
 OUTPUT_DEVICE = 3
@@ -21,8 +22,7 @@ SILENCE_THRESHOLD = 0.1
 SILENCE_DURATION = 0.5
 RECORD_DURATION = 5
 
-from dotenv import load_dotenv
-load_dotenv()
+
 
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
@@ -98,19 +98,15 @@ def record_audio(recordings_queue):
     print('Process started: RECORD')
     # Set up PyAudio to record
     while True:
-        #if allow_recording.value:
-            print('Start recording...')
-            filename = os.path.join('audio', f"audio_{uuid1()}.wav")
-            if record_anything(filename):
-                print('Adding to queue', filename)
-                recordings_queue.put(filename)
-            else:
-                print('Silence')
-                recordings_queue.put('STOP')
-       # else:
-            #print('Recording is not allowed!')
-           # time.sleep(0.1)
-        # print("recorded", filename)
+        print('Start recording...')
+        filename = os.path.join('audio', f"audio_{uuid1()}.wav")
+        if record_anything(filename):
+            print('Adding to queue', filename)
+            recordings_queue.put(filename)
+        else:
+            print('Silence')
+            recordings_queue.put('STOP')
+
 
 
 def transcribe_audio(recordings_queue, texts_queue, allow_recording):
@@ -150,9 +146,6 @@ def transcribe_audio(recordings_queue, texts_queue, allow_recording):
                 print('Не отправляю!')
                 allow_recording.value = True
             print('transcribed', transcript.text)
-
-
-import json
 
 
 def get_answer_ai(text_to_send, messages):
@@ -215,11 +208,8 @@ def voice_text(answers_queue, allow_recording, texts_queue):
             if text:
                 allow_recording.value = False
                 print('Playing started', text)
-                #while not texts_queue.empty():
-                #    texts_queue.get()
 
                 play(text)
-                #time.sleep(5)
 
                 print('Playing finished', text)
                 #allow_recording.value = True

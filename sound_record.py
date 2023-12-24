@@ -26,7 +26,6 @@ OUTPUT_DEVICE = 3
 SILENCE_THRESHOLD = 0.05
 SILENCE_DURATION = 0.5
 RECORD_DURATION = 4
-
 api_key = os.getenv("OPENAI_API_KEY")
 client = AsyncOpenAI(api_key=api_key)
 
@@ -87,11 +86,10 @@ async def record_audio(filename):
     audio_queue.put_nowait(filename)
 
 async def transcribe_audio(queue):
-    result = ''
+
     async def async_trans(filename):
         trans_start_time = time.time()
-        nonlocal result
-
+        result = ''
         if filename == 'STOP':
             #answer_text = await get_answer_ai(result)
             #print('answer_text: ', answer_text)
@@ -99,7 +97,6 @@ async def transcribe_audio(queue):
             # with open(f"{filename}.txt", 'w') as file:
             #     file.write(result)
 
-            result = ''
             return
 
         else:
@@ -107,7 +104,7 @@ async def transcribe_audio(queue):
             with open(filename, "rb") as audio_file:
                 transcript = await client.audio.transcriptions.create(file=audio_file, language='ru', model="whisper-1")
             print(transcript.text)
-            result += transcript.text
+            result = transcript.text
             print(f"Транскрибация файла {filename} завершена за {time.time() - trans_start_time} сек.")
             os.remove(filename)  # Удаляем файл после транскрибации
 
