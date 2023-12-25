@@ -14,15 +14,14 @@ import numpy as np
 import shutil
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 INPUT_DEVICE = 1
 OUTPUT_DEVICE = 3
 SILENCE_THRESHOLD = 0.1
-SILENCE_DURATION = 0.5
+SILENCE_DURATION = 2
 RECORD_DURATION = 5
-
-
 
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
@@ -35,9 +34,8 @@ os.makedirs('audio', exist_ok=True)
 
 def is_silence(audio_chunk):
     """Проверяет, превышает ли амплитуда пороговое значение."""
-    #print(np.max(np.abs(audio_chunk)))
+    # print(np.max(np.abs(audio_chunk)))
     return np.max(np.abs(audio_chunk)) < SILENCE_THRESHOLD
-
 
 def record_anything(filename):
     # print('recording...')
@@ -82,7 +80,7 @@ def record_anything(filename):
             else:
                 silence_start_time = None
 
-            if (time.time() - start_time > RECORD_DURATION) and silence:
+            if (time.time() - start_time >= RECORD_DURATION) and silence:
                 stream.stop()
                 break
     # Сохранение записи в файл
@@ -91,7 +89,6 @@ def record_anything(filename):
     concatenated_audio = np.concatenate(audio_buffer, axis=0)
     sf.write(filename, concatenated_audio, fs)
     return True
-
 
 
 def record_audio(recordings_queue):
@@ -108,14 +105,12 @@ def record_audio(recordings_queue):
             recordings_queue.put('STOP')
 
 
-
 def transcribe_audio(recordings_queue, texts_queue, allow_recording):
     print('Process started: TRANSCRIBE')
     current_text = ''
     while True:
         if not recordings_queue.empty():
             filename = recordings_queue.get()
-            print(f'Забрал мз очереди {filename}')
             if filename == 'STOP':
                 # print('STOP')
                 # print(current_text)
@@ -131,20 +126,23 @@ def transcribe_audio(recordings_queue, texts_queue, allow_recording):
 
             for bad_text in [
                 "продолжение следует...",
-                'игорь негода',
-                'субтитр',
-                'Редактор субтитров А.Семкин Корректор А.Егорова',
+                "игорь негода",
+                "субтитр",
+                "Редактор субтитров А.Семкин Корректор А.Егорова",
             ]:
                 if bad_text in transcript.text:
                     print('BAD TEXT', transcript.text)
                     continue
 
             current_text = transcript.text
+            print(allow_recording.value)
             if allow_recording.value:
                 texts_queue.put(current_text)
             else:
+                while not texts_queue.empty():
+                    texts_queue.get()
                 print('Не отправляю!')
-                allow_recording.value = True
+
             print('transcribed', transcript.text)
 
 
@@ -152,10 +150,13 @@ def get_answer_ai(text_to_send, messages):
     # return 'This is a test answer'
     print('----\nQuestion:\n', text_to_send)
     messages = [
-        {'content': 'Ты Голосовой ассистент. Отвечай максимально просто, коротко, только на русском языке', 'role': 'system'},
-    ] + messages + [
-        {'content': text_to_send, 'role': 'user'}
-    ]
+                   {'content': 'Ты Голосовой ассистент. Отвечай максимально просто, коротко, только на русском языке'
+                               'Внимательно читай все что тебе пишут! На каждое сообщение отвечай просто символом пробела " " до тех пор пока тебе не скажут слово "ответь".'
+                               'МЫ ПРОГРАММНО ДАЛИ ТЕБЕ ГОЛОС И ВОЗМОЖНОСТЬ СЛЫШАТЬ! НИКОГДА НЕ ГОВОРИ ЧТО ТЫ НЕ СЛЫШИШЬ!',
+                    'role': 'system'},
+               ] + messages + [
+                   {'content': text_to_send, 'role': 'user'}
+               ]
     print('----\nMessages:\n', json.dumps(messages, indent=4, ensure_ascii=False))
     response = client.chat.completions.create(
         messages=messages,
@@ -168,18 +169,19 @@ def get_answer_ai(text_to_send, messages):
     return answer
 
 
-def process_text(texts_queue, answers_queue):
+def process_text(texts_queue, answers_queue, allow_recording):
     messages = []
     print('Process started: PROCESS')
     while True:
-        if not texts_queue.empty():
+        if allow_recording.value and (not texts_queue.empty()):
             text = texts_queue.get()
-            print(text)
             if text:
                 answer = get_answer_ai(text, messages)
                 messages.append({'content': text, 'role': 'user'})
                 messages.append({'content': answer, 'role': 'assistant'})
                 answers_queue.put(answer)
+
+                # allow_recording.value = True
 
 
 def play(text):
@@ -207,12 +209,18 @@ def voice_text(answers_queue, allow_recording, texts_queue):
             text = answers_queue.get()
             if text:
                 allow_recording.value = False
+
                 print('Playing started', text)
 
                 play(text)
 
+                while not texts_queue.empty():
+                    texts_queue.get()
+
                 print('Playing finished', text)
-                #allow_recording.value = True
+                time.sleep(3)
+                allow_recording.value = True
+
             # print(text)
             # os.system(f'say "{text}"')
 
@@ -222,13 +230,15 @@ if __name__ == "__main__":
     texts_queue = multiprocessing.Queue()
     answers_queue = multiprocessing.Queue()
     allow_recording = multiprocessing.Value('i', True)
+    # was_playing = multiprocessing.Value('i', False)
 
     processes = [
+
         multiprocessing.Process(target=record_audio, args=(recordings_queue,)),
         multiprocessing.Process(target=transcribe_audio, args=(recordings_queue, texts_queue, allow_recording)),
-        multiprocessing.Process(target=process_text, args=(texts_queue, answers_queue)),
+        multiprocessing.Process(target=process_text, args=(texts_queue, answers_queue, allow_recording)),
         multiprocessing.Process(target=voice_text, args=(answers_queue, allow_recording, texts_queue)),
     ]
     for p in processes:
         p.start()
-        time.sleep(0.1)
+        time.sleep(0.3)
