@@ -3,6 +3,7 @@
 # pip install openai numpy sounddevice soundfile asyncio python-dotenv
 
 import multiprocessing
+import threading
 import os
 import time
 from uuid import uuid1
@@ -19,8 +20,8 @@ load_dotenv()
 
 INPUT_DEVICE = 1
 OUTPUT_DEVICE = 3
-SILENCE_THRESHOLD = 0.1
-SILENCE_DURATION = 2
+SILENCE_THRESHOLD = 0.07
+SILENCE_DURATION = 1.5
 RECORD_DURATION = 5
 
 api_key = os.getenv("OPENAI_API_KEY")
@@ -34,8 +35,10 @@ os.makedirs('audio', exist_ok=True)
 
 def is_silence(audio_chunk):
     """Проверяет, превышает ли амплитуда пороговое значение."""
+
     # print(np.max(np.abs(audio_chunk)))
     return np.max(np.abs(audio_chunk)) < SILENCE_THRESHOLD
+
 
 def record_anything(filename):
     # print('recording...')
@@ -94,56 +97,83 @@ def record_anything(filename):
 def record_audio(recordings_queue):
     print('Process started: RECORD')
     # Set up PyAudio to record
+    rec_number = 0
     while True:
         print('Start recording...')
         filename = os.path.join('audio', f"audio_{uuid1()}.wav")
         if record_anything(filename):
             print('Adding to queue', filename)
-            recordings_queue.put(filename)
-        else:
-            print('Silence')
-            recordings_queue.put('STOP')
+            recordings_queue.put((filename, rec_number))
+            rec_number += 1
 
 
-def transcribe_audio(recordings_queue, texts_queue, allow_recording):
+def transcribe_audio(recordings_queue, texts_queue, allow_recording, count_transcribe_file):
     print('Process started: TRANSCRIBE')
-    current_text = ''
+    order_lock = threading.Lock()
+    transcription_storage = {}
+
+
     while True:
         if not recordings_queue.empty():
-            filename = recordings_queue.get()
-            if filename == 'STOP':
-                # print('STOP')
-                # print(current_text)
-                texts_queue.put(current_text)
-                current_text = ''
-                continue
-            with open(filename, "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    file=audio_file,
-                    language='ru',
-                    model="whisper-1"
-                )
+            filename, rec_number = recordings_queue.get()
+            thread = threading.Thread(target=thread_transcribe, args=(
+            filename, rec_number, texts_queue, transcription_storage, allow_recording, order_lock,
+            count_transcribe_file))
+            thread.start()
 
-            for bad_text in [
-                "продолжение следует...",
-                "игорь негода",
-                "субтитр",
-                "Редактор субтитров А.Семкин Корректор А.Егорова",
-            ]:
-                if bad_text in transcript.text:
-                    print('BAD TEXT', transcript.text)
-                    continue
 
-            current_text = transcript.text
-            print(allow_recording.value)
-            if allow_recording.value:
-                texts_queue.put(current_text)
-            else:
-                while not texts_queue.empty():
-                    texts_queue.get()
-                print('Не отправляю!')
+# Тут запускаем новый поток
+def thread_transcribe(filename, rec_number, texts_queue, storage, allow_recording, order_lock, count_transcribe_file):
+    with open(filename, "rb") as audio_file:
+        transcript = client.audio.transcriptions.create(
+            file=audio_file,
+            language='ru',
+            model="whisper-1"
+        )
 
-            print('transcribed', transcript.text)
+
+    is_bad = False
+
+    for bad_text in [
+        "Продолжение следует...",
+        "Игорь Негода",
+        "субтитры",
+        "Субтитры",
+        "Редактор субтитров",
+        "До новых встреч!",
+        "Будьте здоровы",
+        "Всем пока!",
+        "И не забывайте подписаться на канал",
+        "ПОДПИШИСЬ!",
+        "ПОДПИСЫВАЙТЕСЬ НА КАНАЛ",
+    ]:
+        if bad_text in transcript.text:
+            print('BAD TEXT', transcript.text)
+            is_bad = True
+
+    if is_bad:
+        count_transcribe_file.value += 1
+        return
+
+    if allow_recording.value:
+
+        with order_lock:
+            storage[rec_number] = transcript.text
+        while True:
+            if rec_number == count_transcribe_file.value:
+                texts_queue.put(storage.pop(rec_number))
+                count_transcribe_file.value += 1
+                break
+
+
+    else:
+        count_transcribe_file.value += 1
+        while not texts_queue.empty():
+            texts_queue.get()
+        print('Не отправляю!')
+
+    print('transcribed', transcript.text)
+
 
 
 def get_answer_ai(text_to_send, messages):
@@ -173,15 +203,17 @@ def process_text(texts_queue, answers_queue, allow_recording):
     messages = []
     print('Process started: PROCESS')
     while True:
-        if allow_recording.value and (not texts_queue.empty()):
-            text = texts_queue.get()
-            if text:
-                answer = get_answer_ai(text, messages)
-                messages.append({'content': text, 'role': 'user'})
-                messages.append({'content': answer, 'role': 'assistant'})
-                answers_queue.put(answer)
+        if allow_recording.value:
+            if not texts_queue.empty():
+                text = texts_queue.get()
+                if text:
+                    answer = get_answer_ai(text, messages)
+                    messages.append({'content': text, 'role': 'user'})
+                    messages.append({'content': answer, 'role': 'assistant'})
+                    if answer != " ":
+                        answers_queue.put(answer)
 
-                # allow_recording.value = True
+                        # allow_recording.value = True
 
 
 def play(text):
@@ -214,12 +246,16 @@ def voice_text(answers_queue, allow_recording, texts_queue):
 
                 play(text)
 
+                data, fs = sf.read("SpeechOff.wav", dtype='float32')
+                sd.play(data, fs, device=OUTPUT_DEVICE)
+                sd.wait()
                 while not texts_queue.empty():
                     texts_queue.get()
 
                 print('Playing finished', text)
                 time.sleep(3)
                 allow_recording.value = True
+                print(allow_recording.value)
 
             # print(text)
             # os.system(f'say "{text}"')
@@ -230,12 +266,13 @@ if __name__ == "__main__":
     texts_queue = multiprocessing.Queue()
     answers_queue = multiprocessing.Queue()
     allow_recording = multiprocessing.Value('i', True)
+    count_transcribe_file = multiprocessing.Value('i', 0)
     # was_playing = multiprocessing.Value('i', False)
 
     processes = [
 
         multiprocessing.Process(target=record_audio, args=(recordings_queue,)),
-        multiprocessing.Process(target=transcribe_audio, args=(recordings_queue, texts_queue, allow_recording)),
+        multiprocessing.Process(target=transcribe_audio, args=(recordings_queue, texts_queue, allow_recording, count_transcribe_file)),
         multiprocessing.Process(target=process_text, args=(texts_queue, answers_queue, allow_recording)),
         multiprocessing.Process(target=voice_text, args=(answers_queue, allow_recording, texts_queue)),
     ]
