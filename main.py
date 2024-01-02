@@ -1,17 +1,19 @@
-import multiprocessing
-import time
-from audio_recorder import run_audio_recorder
-from transcriber import run_transcriber
-from voice_responder import run_voice_responder
+import sounddevice as sd
+import soundfile as sf
+import whisper
 
-def main():
-    recordings_queue = multiprocessing.Queue()
-    texts_queue = multiprocessing.Queue()
-    answers_queue = multiprocessing.Queue()
-    allow_recording = multiprocessing.Value('i', True)
+filename = ''  # Путь к файлу, который нужно воспроизводить
+output_device = 4
+# Функция для воспроизведения аудиофайла
+print(sd.query_devices())
+def play_audio(file):
+    data, fs = sf.read(file, dtype='float32')
+    sd.play(data, fs, device=output_device)
+    sd.wait()  # Ожидание окончания воспроизведения
 
-    processes = [
-        multiprocessing.Process(target=run_audio_recorder, args=(recordings_queue,)),
-        multiprocessing.Process(target=run_transcriber, args=(recordings_queue, texts_queue, allow_recording)),
-        multiprocessing.Process(target=run_voice_responder, args=(answers_queue, allow_rec
-        ]
+# Бесконечный цикл для зацикленного воспроизведения
+while True:
+    #model = whisper.load_model('base')
+    #tr = model.transcribe(filename, fp16=False)
+    #print(tr['text'])
+    play_audio(filename)
