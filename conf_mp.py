@@ -94,7 +94,7 @@ def record_anything(filename):
     return True
 
 
-def record_audio(recordings_queue):
+def record_audio(recordings_queue, allow_recording):
     print('Process started: RECORD')
     # Set up PyAudio to record
     rec_number = 0
@@ -102,7 +102,7 @@ def record_audio(recordings_queue):
         print('Start recording...')
         filename = os.path.join('audio', f"audio_{uuid1()}.wav")
         if record_anything(filename):
-            recordings_queue.put((filename, rec_number))
+            recordings_queue.put((filename, rec_number, allow_recording.value))
             print('Adding to queue', filename)
             rec_number += 1
 
@@ -112,14 +112,14 @@ def transcribe_audio(recordings_queue, texts_queue, allow_recording, count_trans
 
     while True:
         if not recordings_queue.empty():
-            filename, rec_number = recordings_queue.get()
-            thread = threading.Thread(target=thread_transcribe,
-                                      args=(filename, rec_number, texts_queue, allow_recording, count_transcribe_file))
+            filename, rec_number, allow_put = recordings_queue.get()
+            thread = threading.Thread(target=thread_transcribe, args=(
+            filename, rec_number, allow_put, texts_queue, allow_recording, count_transcribe_file))
             thread.start()
 
 
 # Тут запускаем новый поток
-def thread_transcribe(filename, rec_number, texts_queue, allow_recording, count_transcribe_file):
+def thread_transcribe(filename, rec_number, allow_put, texts_queue, allow_recording, count_transcribe_file):
     print(f'Получил для транскрибации {filename}')
     with open(filename, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
@@ -158,7 +158,7 @@ def thread_transcribe(filename, rec_number, texts_queue, allow_recording, count_
         return
 
     while allow_recording.value:
-        if rec_number == count_transcribe_file.value:
+        if (rec_number == count_transcribe_file.value) and allow_put:
             texts_queue.put(transcript.text)
             break
     else:
@@ -205,8 +205,6 @@ def process_text(texts_queue, answers_queue, allow_recording):
                 messages.append({'content': answer, 'role': 'assistant'})
                 if answer != " ":
                     answers_queue.put(answer)
-                    while not texts_queue.empty():
-                        texts_queue.get()
 
 
 def play(text):
@@ -239,9 +237,6 @@ def voice_text(answers_queue, allow_recording, texts_queue):
 
                 play(text)
 
-                while not texts_queue.empty():
-                    texts_queue.get()
-
                 data, fs = sf.read("SpeechOff.wav", dtype='float32')
                 sd.play(data, fs, device=OUTPUT_DEVICE)
                 sd.wait()
@@ -265,7 +260,7 @@ if __name__ == "__main__":
 
     processes = [
 
-        multiprocessing.Process(target=record_audio, args=(recordings_queue,)),
+        multiprocessing.Process(target=record_audio, args=(recordings_queue, allow_recording)),
         multiprocessing.Process(target=transcribe_audio,
                                 args=(recordings_queue, texts_queue, allow_recording, count_transcribe_file)),
         multiprocessing.Process(target=process_text, args=(texts_queue, answers_queue, allow_recording)),
