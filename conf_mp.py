@@ -22,7 +22,7 @@ INPUT_DEVICE = 1
 OUTPUT_DEVICE = 3
 SILENCE_THRESHOLD = 0.07
 SILENCE_DURATION = 1.5
-RECORD_DURATION = 5
+RECORD_DURATION = 6
 
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
@@ -121,6 +121,7 @@ def transcribe_audio(recordings_queue, texts_queue, allow_recording, count_trans
 # Тут запускаем новый поток
 def thread_transcribe(filename, rec_number, allow_put, texts_queue, allow_recording, count_transcribe_file):
     print(f'Получил для транскрибации {filename}')
+
     with open(filename, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
             file=audio_file,
@@ -136,6 +137,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, allow_record
         "субтитры",
         "Субтитры",
         "Редактор субтитров",
+        "Вот и всё. Спасибо за внимание. До новых встреч. ",
         "До новых встреч!",
         "До встречи!",
         "Будьте здоровы",
@@ -174,10 +176,11 @@ def get_answer_ai(text_to_send, messages):
     # return 'This is a test answer'
     print('----\nQuestion:\n', text_to_send)
     messages = [
-                   {'content': 'Ты Голосовой ассистент. Отвечай максимально просто, коротко, только на русском языке'
-                               'Внимательно читай все что тебе пишут! На каждое сообщение отвечай просто символом пробела " " до тех пор пока тебе не скажут слово "отвечай" или слово "ответь".'
-                               'МЫ ПРОГРАММНО ДАЛИ ТЕБЕ ГОЛОС И ВОЗМОЖНОСТЬ СЛЫШАТЬ! НИКОГДА НЕ ГОВОРИ ЧТО ТЫ НЕ СЛЫШИШЬ!',
-                    'role': 'system'},
+                   {
+                       'content': 'Ты Голосовой ассистент женского рода. Отвечай максимально просто, коротко, только на русском языке'
+                                  'Внимательно читай все что тебе пишут! На каждое сообщение отвечай просто символом пробела " " до тех пор пока тебе не скажут слово "отвечай" или слово "ответь".'
+                                  'МЫ ПРОГРАММНО ДАЛИ ТЕБЕ ГОЛОС И ВОЗМОЖНОСТЬ СЛЫШАТЬ! НИКОГДА НЕ ГОВОРИ ЧТО ТЫ НЕ СЛЫШИШЬ!',
+                       'role': 'system'},
                ] + messages + [
                    {'content': text_to_send, 'role': 'user'}
                ]
@@ -203,8 +206,13 @@ def process_text(texts_queue, answers_queue, allow_recording):
                 answer = get_answer_ai(text, messages)
                 messages.append({'content': text, 'role': 'user'})
                 messages.append({'content': answer, 'role': 'assistant'})
-                if answer != " ":
+
+                bad_answer = {" ", "\" \""}
+
+                if answer not in bad_answer:
                     answers_queue.put(answer)
+                    while not texts_queue.empty():
+                        texts_queue.get()
 
 
 def play(text):
@@ -213,8 +221,8 @@ def play(text):
         model="tts-1",
         input=text,
         # voice="alloy",  # Вы можете выбрать другие голоса
-        # voice="nova",
-        voice='onyx',
+        voice="nova",
+        # voice='onyx',
         response_format="opus"  # Формат аудиофайла
     )
 
