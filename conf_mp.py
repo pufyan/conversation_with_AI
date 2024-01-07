@@ -254,9 +254,6 @@ def voice_text(answers_queue, allow_recording, texts_queue):
                 allow_recording.value = True
                 print(allow_recording.value)
 
-            # print(text)
-            # os.system(f'say "{text}"')
-
 
 if __name__ == "__main__":
     recordings_queue = multiprocessing.Queue()
