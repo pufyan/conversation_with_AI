@@ -20,7 +20,7 @@ load_dotenv()
 
 INPUT_DEVICE = 1
 OUTPUT_DEVICE = 3
-SILENCE_THRESHOLD = 0.07
+SILENCE_THRESHOLD = 0.08
 SILENCE_DURATION = 1.5
 RECORD_DURATION = 6
 
@@ -107,19 +107,19 @@ def record_audio(recordings_queue, allow_recording):
             rec_number += 1
 
 
-def transcribe_audio(recordings_queue, texts_queue, allow_recording, count_transcribe_file):
+def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
     print('Process started: TRANSCRIBE')
 
     while True:
         if not recordings_queue.empty():
             filename, rec_number, allow_put = recordings_queue.get()
             thread = threading.Thread(target=thread_transcribe, args=(
-            filename, rec_number, allow_put, texts_queue, allow_recording, count_transcribe_file))
+            filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file))
             thread.start()
 
 
 # Тут запускаем новый поток
-def thread_transcribe(filename, rec_number, allow_put, texts_queue, allow_recording, count_transcribe_file):
+def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
     print(f'Получил для транскрибации {filename}')
 
     with open(filename, "rb") as audio_file:
@@ -135,13 +135,14 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, allow_record
         "Продолжение следует...",
         "Игорь Негода",
         "субтитры",
+        "Спасибо за внимание!"
         "Субтитры",
         "Редактор субтитров",
         "Вот и всё. Спасибо за внимание. До новых встреч. ",
         "До новых встреч!",
         "До встречи!",
         "Будьте здоровы",
-        "Всем пока!",
+        "Всем пока",
         "И не забывайте подписаться на канал",
         "ПОДПИШИСЬ!",
         "ПОДПИСЫВАЙТЕСЬ НА КАНАЛ",
@@ -150,6 +151,9 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, allow_record
         "С вами был я, Сергей Трофимов.",
         " \n",
         "🤣",
+        "Пока!",
+        "Пока-пока!",
+        "Пока! Пока! Пока!"
     ]:
         if bad_text in transcript.text:
             print('BAD TEXT', transcript.text)
@@ -161,8 +165,18 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, allow_record
 
     while allow_recording.value:
         if (rec_number == count_transcribe_file.value) and allow_put:
-            texts_queue.put(transcript.text)
+            text_to_ai_queue.put(transcript.text)
+            #print(f'добавил: {transcript.text}')
+            words_for_answer = ["Ответь", "ответь", "ОТВЕТЬ"]
+            if any(word in transcript.text for word in words_for_answer):
+                text_to_ai = ""
+                while not text_to_ai_queue.empty():
+                    text_to_ai += text_to_ai_queue.get() + " "
+
+                texts_queue.put(text_to_ai)
+                #print(f"Послал текст: {text_to_ai}")
             break
+
     else:
         print('Не отправляю!')
         while not texts_queue.empty():
@@ -177,9 +191,9 @@ def get_answer_ai(text_to_send, messages):
     print('----\nQuestion:\n', text_to_send)
     messages = [
                    {
-                       'content': 'Ты Голосовой ассистент женского рода. Отвечай максимально просто, коротко, только на русском языке'
-                                  'Внимательно читай все что тебе пишут! На каждое сообщение отвечай просто символом пробела " " до тех пор пока тебе не скажут слово "отвечай" или слово "ответь".'
-                                  'МЫ ПРОГРАММНО ДАЛИ ТЕБЕ ГОЛОС И ВОЗМОЖНОСТЬ СЛЫШАТЬ! НИКОГДА НЕ ГОВОРИ ЧТО ТЫ НЕ СЛЫШИШЬ!',
+                       'content':  'Ты Голосовой ассистент женского рода. Отвечай максимально просто, коротко, только на русском языке'
+                               'Внимательно читай все что тебе пишут!'
+                               'МЫ ПРОГРАММНО ДАЛИ ТЕБЕ ГОЛОС И ВОЗМОЖНОСТЬ СЛЫШАТЬ! НИКОГДА НЕ ГОВОРИ ЧТО ТЫ НЕ СЛЫШИШЬ!',
                        'role': 'system'},
                ] + messages + [
                    {'content': text_to_send, 'role': 'user'}
@@ -187,8 +201,8 @@ def get_answer_ai(text_to_send, messages):
     print('----\nMessages:\n', json.dumps(messages, indent=4, ensure_ascii=False))
     response = client.chat.completions.create(
         messages=messages,
-        # model='gpt-3.5-turbo',
-        model='gpt-4-1106-preview'
+        model='gpt-3.5-turbo',
+        # model='gpt-4-1106-preview'
     )
     answer = response.choices[0].message.content
     print('----\nAnswer:\n', answer)
@@ -207,7 +221,7 @@ def process_text(texts_queue, answers_queue, allow_recording):
                 messages.append({'content': text, 'role': 'user'})
                 messages.append({'content': answer, 'role': 'assistant'})
 
-                bad_answer = {" ", "\" \""}
+                bad_answer = {" ", "\" \"", "", " \n"}
 
                 if answer not in bad_answer:
                     answers_queue.put(answer)
@@ -239,6 +253,7 @@ def voice_text(answers_queue, allow_recording, texts_queue):
         if not answers_queue.empty():
             text = answers_queue.get()
             if text:
+
                 allow_recording.value = False
 
                 print('Playing started', text)
@@ -250,27 +265,33 @@ def voice_text(answers_queue, allow_recording, texts_queue):
                 sd.wait()
 
                 print('Playing finished', text)
-                time.sleep(5)
+                time.sleep(6)
                 allow_recording.value = True
                 print(allow_recording.value)
 
 
+
 if __name__ == "__main__":
+
     recordings_queue = multiprocessing.Queue()
     texts_queue = multiprocessing.Queue()
+    text_to_ai_queue = multiprocessing.Queue()
     answers_queue = multiprocessing.Queue()
-    allow_recording = multiprocessing.Value('i', True)
+    allow_recording = multiprocessing.Value('i', True, lock=True)
     count_transcribe_file = multiprocessing.Value('i', 0)
-    # was_playing = multiprocessing.Value('i', False)
 
     processes = [
 
         multiprocessing.Process(target=record_audio, args=(recordings_queue, allow_recording)),
         multiprocessing.Process(target=transcribe_audio,
-                                args=(recordings_queue, texts_queue, allow_recording, count_transcribe_file)),
+                                args=(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file)),
         multiprocessing.Process(target=process_text, args=(texts_queue, answers_queue, allow_recording)),
         multiprocessing.Process(target=voice_text, args=(answers_queue, allow_recording, texts_queue)),
     ]
     for p in processes:
         p.start()
         time.sleep(0.3)
+
+    for p in processes:
+        p.join()
+
