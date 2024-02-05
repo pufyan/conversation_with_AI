@@ -29,6 +29,7 @@ client = OpenAI(api_key=api_key)
 
 # remove audio folder if exists, with all files inside:
 if os.path.exists('audio'):
+    shutil.copytree('audio', f'audio_{uuid1()}')
     shutil.rmtree('audio')
 os.makedirs('audio', exist_ok=True)
 
@@ -122,12 +123,20 @@ def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_reco
 def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
     print(f'Получил для транскрибации {filename}')
 
-    with open(filename, "rb") as audio_file:
-        transcript = client.audio.transcriptions.create(
-            file=audio_file,
-            language='ru',
-            model="whisper-1"
-        )
+    try:
+        with open(filename, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                file=audio_file,
+                language='ru',
+                model="whisper-1",
+                temperature=0.1,
+                timeout=2.5
+            )
+        print(transcript.text)
+    except:
+        count_transcribe_file.value += 1
+        print('Потерял!')
+        return
 
     is_bad = False
 
@@ -166,7 +175,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
     while allow_recording.value:
         if (rec_number == count_transcribe_file.value) and allow_put:
             text_to_ai_queue.put(transcript.text)
-            #print(f'добавил: {transcript.text}')
+            # print(f'добавил: {transcript.text}')
             words_for_answer = ["Ответь", "ответь", "ОТВЕТЬ"]
             if any(word in transcript.text for word in words_for_answer):
                 text_to_ai = ""
@@ -174,8 +183,12 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
                     text_to_ai += text_to_ai_queue.get() + " "
 
                 texts_queue.put(text_to_ai)
-                #print(f"Послал текст: {text_to_ai}")
+                # print(f"Послал текст: {text_to_ai}")
+                data, fs = sf.read("SpeechOn.wav", dtype='float32')
+                sd.play(data, fs, device=OUTPUT_DEVICE)
+                # sd.wait()
             break
+
 
     else:
         print('Не отправляю!')
@@ -265,7 +278,12 @@ def voice_text(answers_queue, allow_recording, texts_queue):
                 sd.wait()
 
                 print('Playing finished', text)
-                time.sleep(6)
+                time.sleep(4)
+
+                while not texts_queue.empty():
+                    text_to_ai_queue.get()
+                    texts_queue.get()
+
                 allow_recording.value = True
                 print(allow_recording.value)
 
