@@ -16,6 +16,8 @@ import shutil
 
 from dotenv import load_dotenv
 
+from utils.bot_utils import log
+
 load_dotenv()
 
 INPUT_DEVICE = 1
@@ -32,6 +34,13 @@ if os.path.exists('audio'):
     shutil.copytree('audio', f'audio_{uuid1()}')
     shutil.rmtree('audio')
 os.makedirs('audio', exist_ok=True)
+
+import asyncio
+
+
+def sync_log(*args):
+    # call async log function from bot_utils.py
+    asyncio.run(log('DEBUG', *args))
 
 
 def is_silence(audio_chunk):
@@ -115,13 +124,15 @@ def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_reco
         if not recordings_queue.empty():
             filename, rec_number, allow_put = recordings_queue.get()
             thread = threading.Thread(target=thread_transcribe, args=(
-            filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file))
+                filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file)
+            )
             thread.start()
 
 
 # Тут запускаем новый поток
 def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
     print(f'Получил для транскрибации {filename}')
+    sync_log(f'Получил для транскрибации {filename}')
 
     try:
         with open(filename, "rb") as audio_file:
@@ -178,6 +189,9 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
             # print(f'добавил: {transcript.text}')
             words_for_answer = ["Ответь", "ответь", "ОТВЕТЬ"]
             if any(word in transcript.text for word in words_for_answer):
+
+                sync_log(f'Получил текст для ответа:\n{transcript.text}')
+
                 text_to_ai = ""
                 while not text_to_ai_queue.empty():
                     text_to_ai += text_to_ai_queue.get() + " "
@@ -187,8 +201,9 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
                 data, fs = sf.read("SpeechOn.wav", dtype='float32')
                 sd.play(data, fs, device=OUTPUT_DEVICE)
                 # sd.wait()
+            else:
+                sync_log(f'Плохой текст для ответа:\n{transcript.text}')
             break
-
 
     else:
         print('Не отправляю!')
@@ -199,18 +214,25 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
     print('transcribed', transcript.text)
 
 
+PROMPT = '''Ты Голосовой ассистент в групповом чате. 
+Отвечай максимально коротко, не больше 2-3 предолжений.
+Отвечай только на русском языке.
+О себе говори только в женском роде.
+Учитывай что текст может быть не полным или поступать с задержкой - есть контекст не до конца понятный, подожди следующего сообщения или уточни вопрос.
+'''
+
+
 def get_answer_ai(text_to_send, messages):
     # return 'This is a test answer'
-    print('----\nQuestion:\n', text_to_send)
+    # print('----\nQuestion:\n', text_to_send)
+    sync_log('Запрос:\n', text_to_send)
     messages = [
-                   {
-                       'content':  'Ты Голосовой ассистент женского рода. Отвечай максимально просто, коротко, только на русском языке'
-                               'Внимательно читай все что тебе пишут!'
-                               'МЫ ПРОГРАММНО ДАЛИ ТЕБЕ ГОЛОС И ВОЗМОЖНОСТЬ СЛЫШАТЬ! НИКОГДА НЕ ГОВОРИ ЧТО ТЫ НЕ СЛЫШИШЬ!',
-                       'role': 'system'},
-               ] + messages + [
-                   {'content': text_to_send, 'role': 'user'}
-               ]
+        {
+            'content': PROMPT,
+            'role': 'system'},
+    ] + messages + [
+        {'content': text_to_send, 'role': 'user'}
+    ]
     print('----\nMessages:\n', json.dumps(messages, indent=4, ensure_ascii=False))
     response = client.chat.completions.create(
         messages=messages,
@@ -219,6 +241,7 @@ def get_answer_ai(text_to_send, messages):
     )
     answer = response.choices[0].message.content
     print('----\nAnswer:\n', answer)
+    sync_log('Ответ:\n', answer)
     print('----')
     return answer
 
@@ -288,7 +311,6 @@ def voice_text(answers_queue, allow_recording, texts_queue):
                 print(allow_recording.value)
 
 
-
 if __name__ == "__main__":
 
     recordings_queue = multiprocessing.Queue()
@@ -312,4 +334,3 @@ if __name__ == "__main__":
 
     for p in processes:
         p.join()
-
