@@ -112,9 +112,10 @@ def record_audio(recordings_queue, allow_recording):
         print('Start recording...')
         filename = os.path.join('audio', f"audio_{uuid1()}.wav")
         if record_anything(filename):
+            rec_number += 1
             recordings_queue.put((filename, rec_number, allow_recording.value))
             print('Adding to queue', filename)
-            rec_number += 1
+            
 
 
 def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
@@ -183,6 +184,8 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
         count_transcribe_file.value += 1
         return
 
+    count_transcribe_file.value += 1
+    
     while allow_recording.value:
         if (rec_number == count_transcribe_file.value) and allow_put:
             text_to_ai_queue.put(transcript.text)
@@ -210,7 +213,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
         while not texts_queue.empty():
             texts_queue.get()
 
-    count_transcribe_file.value += 1
+    
     print('transcribed', transcript.text)
 
 
