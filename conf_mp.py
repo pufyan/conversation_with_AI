@@ -129,7 +129,7 @@ def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_reco
 # Тут запускаем новый поток
 def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
     print(f'Получил для транскрибации {filename}')
-    sync_log(f'Получил для транскрибации {filename}')
+    # sync_log(f'Получил для транскрибации {filename}')
 
     try:
         with open(filename, "rb") as audio_file:
@@ -138,7 +138,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
                 language='ru',
                 model="whisper-1",
                 temperature=0,
-                timeout=2,
+                # timeout=2,
             )
         print(transcript.text)
     except:
@@ -208,7 +208,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
                 sd.play(data, fs, device=OUTPUT_DEVICE)
                 # sd.wait()
             else:
-                sync_log(f'Плохой текст для ответа:\n{transcript.tex}')
+                sync_log(f'Плохой текст для ответа:\n{transcript.text}')
             break
 
     else:
@@ -218,6 +218,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
 
     count_transcribe_file.value += 1
     print('transcribed', transcript.text)
+    sync_log(f"Распознано: {transcript.text}")
 
 
 PROMPT = '''Ты Голосовой ассистент в групповом чате. 
