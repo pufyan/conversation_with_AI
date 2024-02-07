@@ -185,7 +185,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
     
     
     while allow_recording.value:
-        if (rec_number == count_transcribe_file.value) and allow_put:
+        if (rec_number <= count_transcribe_file.value) and allow_put:
             text_to_ai_queue.put(transcript.text)
             # print(f'добавил: {transcript.text}')
             words_for_answer = ["Ответь", "ответь", "ОТВЕТЬ"]
