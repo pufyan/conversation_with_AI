@@ -13,7 +13,6 @@ import json
 from openai import OpenAI
 import numpy as np
 import shutil
-
 from dotenv import load_dotenv
 
 from utils.bot_utils import log
@@ -39,7 +38,6 @@ import asyncio
 
 
 def sync_log(*args):
-    # call async log function from bot_utils.py
     asyncio.run(log('DEBUG', *args))
 
 
@@ -111,7 +109,7 @@ def record_audio(recordings_queue, allow_recording):
     while True:
         print('Start recording...')
         filename = os.path.join('audio', f"audio_{uuid1()}.wav")
-        if record_anything(filename):            
+        if record_anything(filename):
             recordings_queue.put((filename, rec_number, allow_recording.value))
             print('Adding to queue', filename)
             rec_number += 1
@@ -124,8 +122,7 @@ def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_reco
         if not recordings_queue.empty():
             filename, rec_number, allow_put = recordings_queue.get()
             thread = threading.Thread(target=thread_transcribe, args=(
-                filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file)
-            )
+                filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file))
             thread.start()
 
 
@@ -140,11 +137,13 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
                 file=audio_file,
                 language='ru',
                 model="whisper-1",
-                temperature=0.1,
-                timeout=2.5
+                temperature=0,
+                timeout=2,
             )
         print(transcript.text)
     except:
+        data, fs = sf.read("SpeechMisrecognition.wav", dtype='float32')
+        sd.play(data, fs, device=OUTPUT_DEVICE)
         count_transcribe_file.value += 1
         print('Потерял!')
         return
@@ -152,7 +151,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
     is_bad = False
 
     for bad_text in [
-        "Продолжение следует...",
+        "Продолжение следует",
         "Игорь Негода",
         "субтитры",
         "Спасибо за внимание!"
@@ -173,7 +172,14 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
         "🤣",
         "Пока!",
         "Пока-пока!",
-        "Пока! Пока! Пока!"
+        "Пока! Пока! Пока!",
+        "С вами был Иван Акцинь",
+        "DimaTorzok",
+        "До свидания!",
+        "Увидимся!",
+        "Корректор А.Кулакова",
+        "Подпишись на канал, ставь лайк и жми на колокольчик.Подпишись на канал, ставь лайк и жми на колокольчик",
+        "Весьма спасибо за просмотр!"
     ]:
         if bad_text in transcript.text:
             print('BAD TEXT', transcript.text)
@@ -182,28 +188,27 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
     if is_bad:
         count_transcribe_file.value += 1
         return
-    
-    
+
+    count_transcribe_file.value += 1
+
     while allow_recording.value:
         if (rec_number <= count_transcribe_file.value) and allow_put:
             text_to_ai_queue.put(transcript.text)
-            # print(f'добавил: {transcript.text}')
-            words_for_answer = ["Ответь", "ответь", "ОТВЕТЬ"]
-            if any(word in transcript.text for word in words_for_answer):
-
+            print(f'добавил: {transcript.text}')
+            words_for_answer = ["Ответь", "отвечай"]
+            if any(word.lower() in transcript.text.lower() for word in words_for_answer):
                 sync_log(f'Получил текст для ответа:\n{transcript.text}')
-
                 text_to_ai = ""
                 while not text_to_ai_queue.empty():
                     text_to_ai += text_to_ai_queue.get() + " "
 
                 texts_queue.put(text_to_ai)
-                # print(f"Послал текст: {text_to_ai}")
+                print(f"Послал текст: {text_to_ai}")
                 data, fs = sf.read("SpeechOn.wav", dtype='float32')
                 sd.play(data, fs, device=OUTPUT_DEVICE)
                 # sd.wait()
             else:
-                sync_log(f'Плохой текст для ответа:\n{transcript.text}')
+                sync_log(f'Плохой текст для ответа:\n{transcript.tex}')
             break
 
     else:
@@ -225,7 +230,7 @@ PROMPT = '''Ты Голосовой ассистент в групповом ч�
 
 def get_answer_ai(text_to_send, messages):
     # return 'This is a test answer'
-    # print('----\nQuestion:\n', text_to_send)
+    print('----\nQuestion:\n', text_to_send)
     sync_log('Запрос:\n', text_to_send)
     messages = [
         {
@@ -258,12 +263,9 @@ def process_text(texts_queue, answers_queue, allow_recording):
                 messages.append({'content': text, 'role': 'user'})
                 messages.append({'content': answer, 'role': 'assistant'})
 
-                bad_answer = {" ", "\" \"", "", " \n"}
-
-                if answer not in bad_answer:
-                    answers_queue.put(answer)
-                    while not texts_queue.empty():
-                        texts_queue.get()
+                answers_queue.put(answer)
+                while not texts_queue.empty():
+                    texts_queue.get()
 
 
 def play(text):
@@ -302,12 +304,10 @@ def voice_text(answers_queue, allow_recording, texts_queue):
                 sd.wait()
 
                 print('Playing finished', text)
-                time.sleep(4)
-
+                time.sleep(5)
                 while not texts_queue.empty():
                     text_to_ai_queue.get()
                     texts_queue.get()
-
                 allow_recording.value = True
                 print(allow_recording.value)
 
@@ -322,7 +322,6 @@ if __name__ == "__main__":
     count_transcribe_file = multiprocessing.Value('i', 0)
 
     processes = [
-
         multiprocessing.Process(target=record_audio, args=(recordings_queue, allow_recording)),
         multiprocessing.Process(target=transcribe_audio,
                                 args=(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file)),
