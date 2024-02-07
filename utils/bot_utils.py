@@ -18,7 +18,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN') or None
 DEBUG_CHAT = os.getenv('DEBUG_CHAT') or None
 VOICING = os.getenv('VOICING') or False
 
-bot = telegram.Bot(BOT_TOKEN)
+# bot = telegram.Bot(BOT_TOKEN)
 
 
 ESCAPE_SYMBOLS = [
@@ -51,6 +51,7 @@ pre-formatted fixed-width code block written in the Python programming language
 
 
 async def send_text_message(msg, chat_id, parse_mode=None, markdown=None, message_thread_id=None, **kwargs):
+    bot = telegram.Bot(BOT_TOKEN)
     if msg is None:
         return
 
