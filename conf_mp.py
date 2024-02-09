@@ -189,7 +189,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
         count_transcribe_file.value += 1
         return
 
-    count_transcribe_file.value += 1
+    #count_transcribe_file.value += 1
 
     while allow_recording.value:
         if (rec_number <= count_transcribe_file.value) and allow_put:
