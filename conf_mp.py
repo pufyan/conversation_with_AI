@@ -203,12 +203,12 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
                     text_to_ai += text_to_ai_queue.get() + " "
 
                 texts_queue.put(text_to_ai)
-                print(f"Послал текст: {text_to_ai}")
+                print(f"Послал текст chatgpt: {text_to_ai}")
                 data, fs = sf.read("SpeechOn.wav", dtype='float32')
                 sd.play(data, fs, device=OUTPUT_DEVICE)
                 # sd.wait()
             else:
-                sync_log(f'Плохой текст для ответа:\n{transcript.text}')
+                sync_log(f'Добавил текст для chatgpt:\n{transcript.text}')
             break
 
     else:
