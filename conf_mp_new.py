@@ -132,15 +132,14 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
  #   sync_log(f'Получил для транскрибации {filename}')
    
     try:
+        model = WhisperModel("base", download_root='faster_whisper_cache')
+        transcript_text = ''
         with open(filename, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                file=audio_file,
-                language='ru',
-                model="whisper-1",
-                temperature=0,
-                timeout=2,
-            )
-        print(transcript.text)
+            segments, info = model.transcribe(audio_file)
+            for segment in segments:
+                # print( "[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
+                print(f'{datetime.datetime.utcnow().strftime("%H:%M:%S,%f")}:[{segment.start:.2f} -> {segment.end:.2f}] {segment.text}')
+                transcript_text += ' ' + segment.text
     except:
         data, fs = sf.read("SpeechMisrecognition.wav", dtype='float32')
         sd.play(data, fs, device=OUTPUT_DEVICE)
