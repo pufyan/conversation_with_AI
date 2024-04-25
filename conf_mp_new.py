@@ -17,8 +17,7 @@ import shutil
 from dotenv import load_dotenv
 from faster_whisper import WhisperModel
 import datetime
-import pyaudio
-import wave
+
 load_dotenv()
 
 INPUT_DEVICE = 1
@@ -173,19 +172,19 @@ def record_audio(recordings_queue, allow_recording):
             rec_number += 1
 
 
-def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
+def transcribe_audio(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file, allow_play):
     print('Process started: TRANSCRIBE')
 
     while True:
         if not recordings_queue.empty():
             filename, rec_number, allow_put = recordings_queue.get()
             thread = threading.Thread(target=thread_transcribe, args=(
-            filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file))
+            filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file, allow_play))
             thread.start()
 
 
 # Тут запускаем новый поток
-def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file):
+def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file, allow_play):
     print(f'Получил для транскрибации {filename}')
  #   sync_log(f'Получил для транскрибации {filename}')
    
@@ -251,7 +250,8 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
         "Увидимся!",
         "Корректор А.Кулакова",
         "Подпишись на канал, ставь лайк и жми на колокольчик.Подпишись на канал, ставь лайк и жми на колокольчик",
-        "Весьма спасибо за просмотр!"
+        "Весьма спасибо за просмотр!",
+        "Thank you very much"
     ]:
         if bad_text in transcript_text:
             print('BAD TEXT', transcript_text)
@@ -284,6 +284,9 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
             break
         
     else:
+        stop_words = ["стоп", "Стоп", "СТОП", "остановись", "Остановись", "прекрати"]
+        if any(word in transcript_text for word in stop_words):
+            allow_play.value = False
         print('Не отправляю!')
         while not texts_queue.empty():
             texts_queue.get()
@@ -297,7 +300,6 @@ PROMPT = '''Ты Голосовой ассистент в групповом ч�
 О себе говори только в женском роде.
 Учитывай что текст может быть не полным или поступать с задержкой - есть контекст не до конца понятный, подожди следующего сообщения или уточни вопрос.
 '''
-
 
 def get_answer_ai(text_to_send, messages):
     # return 'This is a test answer'
@@ -338,25 +340,33 @@ def process_text(texts_queue, answers_queue, allow_recording):
                     texts_queue.get()
 
 
-def play(text):
+def play(text, allow_play):
     # Преобразование текстового ответа в речь
-    audio_response = client.audio.speech.create(
-        model="tts-1",
-        input=text,
-        # voice="alloy",  # Вы можете выбрать другие голоса
-        voice="nova",
-        # voice='onyx',
-        response_format="opus"  # Формат аудиофайла
-    )
+    with client.audio.speech.with_streaming_response.create(
+            model="tts-1",
+            input=text,
+            # voice="alloy",  # Вы можете выбрать другие голоса
+            voice="nova",
+            # voice='onyx',
+            response_format="opus"  # Формат аудиофайла
+        ) as response:
 
-    audio_response.stream_to_file("response.opus")
+        response.stream_to_file("response.opus")
+
     data, fs = sf.read("response.opus", dtype='float32')
     sd.play(data, fs, device=OUTPUT_DEVICE)
-    sd.wait()
+    stream = sd.get_stream()
+    while allow_play.value and stream.active:
+        print(allow_play.value)
+        sd.sleep(1000)
+    else:
+        sd.stop()
+
+    allow_play.value = True    
     os.remove("response.opus")
 
 
-def voice_text(answers_queue, allow_recording, texts_queue):
+def voice_text(answers_queue, allow_recording, texts_queue, allow_play):
     print('Process started: VOICE')
     while True:
         if not answers_queue.empty():
@@ -367,7 +377,7 @@ def voice_text(answers_queue, allow_recording, texts_queue):
 
                 print('Playing started', text)
 
-                play(text)
+                play(text, allow_play)
 
                 data, fs = sf.read("SpeechOff.wav", dtype='float32')
                 sd.play(data, fs, device=OUTPUT_DEVICE)
@@ -391,14 +401,15 @@ if __name__ == "__main__":
     answers_queue = multiprocessing.Queue()
     allow_recording = multiprocessing.Value('i', True, lock=True)
     count_transcribe_file = multiprocessing.Value('i', 0)
+    allow_play = multiprocessing.Value('i', True)
 
     processes = [
 
         multiprocessing.Process(target=record_audio, args=(recordings_queue, allow_recording)),
         multiprocessing.Process(target=transcribe_audio,
-                                args=(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file)),
+                                args=(recordings_queue, texts_queue, text_to_ai_queue, allow_recording, count_transcribe_file, allow_play)),
         multiprocessing.Process(target=process_text, args=(texts_queue, answers_queue, allow_recording)),
-        multiprocessing.Process(target=voice_text, args=(answers_queue, allow_recording, texts_queue)),
+        multiprocessing.Process(target=voice_text, args=(answers_queue, allow_recording, texts_queue, allow_play)),
     ]
     for p in processes:
         p.start()
