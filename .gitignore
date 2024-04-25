@@ -1,4 +1,5 @@
 .env
+faster_whisper_cache/
 prod/
 openv_prod/
 *.wav
