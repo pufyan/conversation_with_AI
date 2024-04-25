@@ -15,11 +15,14 @@ import numpy as np
 import shutil
 #from utils.bot_utils import log
 from dotenv import load_dotenv
-
+from faster_whisper import WhisperModel
+import datetime
+import pyaudio
+import wave
 load_dotenv()
 
 INPUT_DEVICE = 1
-OUTPUT_DEVICE = 0
+OUTPUT_DEVICE = 3
 SILENCE_THRESHOLD = 0.08
 SILENCE_DURATION = 1.5
 RECORD_DURATION = 6
@@ -83,8 +86,9 @@ def record_anything(filename):
             if silence:
                 if silence_start_time is None:
                     silence_start_time = time.time()
-                elif time.time() - silence_start_time > SILENCE_DURATION:
+                elif time.time() - silence_start_time > SILENCE_DURATION:                    
                     stream.stop()
+                    print("Завершение записи по тишине.")
                     # Тишина длится более SILENCE_DURATION секунд
                     # audio_queue.put_nowait('STOP')
                     break
@@ -93,6 +97,7 @@ def record_anything(filename):
 
             if (time.time() - start_time >= RECORD_DURATION) and silence:
                 stream.stop()
+                print("Завершение записи по времени.")
                 break
     # Сохранение записи в файл
 
@@ -100,8 +105,61 @@ def record_anything(filename):
     concatenated_audio = np.concatenate(audio_buffer, axis=0)
     sf.write(filename, concatenated_audio, fs)
     return True
+'''
+def record_anything(filename):
+    audio_format = pyaudio.paInt16
+    channels = 2
+    fs = 48000
+    chunk_size = 2400  # размер фрагмента для чтения
+    audio_buffer = []
 
+    p = pyaudio.PyAudio()
+    stream = p.open(format=audio_format, channels=channels, rate=fs, input=True, frames_per_buffer=chunk_size)
 
+    recording = False
+    silence_start_time = None
+    start_time = None
+
+    try:
+        while True:
+            audio_chunk = np.fromstring(stream.read(chunk_size), dtype=np.int16)
+            audio_buffer.append(audio_chunk)
+
+            silence = is_silence(audio_chunk)
+            current_time = time.time()
+
+            if not recording and not silence:
+                recording = True
+                print(f'Начинаю запись {filename}')
+                start_time = current_time
+
+            elif recording:
+                if silence:
+                    if silence_start_time is None:
+                        silence_start_time = current_time
+                    elif current_time - silence_start_time > SILENCE_DURATION:
+                        print("Завершение записи по тишине.")
+                        break
+                else:
+                    silence_start_time = None
+
+                if (current_time - start_time >= RECORD_DURATION) and silence:
+                    print("Завершение записи по времени.")
+                    break
+
+    finally:
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+        concatenated_audio = np.concatenate(audio_buffer)
+        wave_file = wave.open(filename, 'wb')
+        wave_file.setnchannels(channels)
+        wave_file.setsampwidth(p.get_sample_size(audio_format))
+        wave_file.setframerate(fs)
+        wave_file.writeframes(concatenated_audio.tobytes())
+        wave_file.close()
+'''
 def record_audio(recordings_queue, allow_recording):
     print('Process started: RECORD')
     # Set up PyAudio to record
@@ -131,23 +189,37 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
     print(f'Получил для транскрибации {filename}')
  #   sync_log(f'Получил для транскрибации {filename}')
    
-    try:
-        with open(filename, "rb") as audio_file:
+   # try:
+    
+    model = WhisperModel("base", download_root='faster_whisper_cache')
+    transcript_text = ''
+    with open(filename, "rb") as audio_file:
+        segments, info = model.transcribe(audio_file)
+        for segment in segments:
+                # print( "[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
+            print(f'{datetime.datetime.utcnow().strftime("%H:%M:%S,%f")}:[{segment.start:.2f} -> {segment.end:.2f}] {segment.text}')
+            transcript_text += ' ' + segment.text
+    del model           
+    '''
+    with open(filename, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
                 file=audio_file,
                 language='ru',
                 model="whisper-1",
-                temperature=0,
-                timeout=2,
+                temperature=0.2
+                #timeout=13
             )
-        print(transcript.text)
+    transcript_text = transcript
+        
+    '''
+    '''    
     except:
         data, fs = sf.read("SpeechMisrecognition.wav", dtype='float32')
         sd.play(data, fs, device=OUTPUT_DEVICE)
         count_transcribe_file.value += 1
         print('Потерял!')
         return 
-    
+    ''' 
     is_bad = False
 
     for bad_text in [
@@ -181,8 +253,8 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
         "Подпишись на канал, ставь лайк и жми на колокольчик.Подпишись на канал, ставь лайк и жми на колокольчик",
         "Весьма спасибо за просмотр!"
     ]:
-        if bad_text in transcript.text:
-            print('BAD TEXT', transcript.text)
+        if bad_text in transcript_text:
+            print('BAD TEXT', transcript_text)
             is_bad = True
 
     if is_bad:
@@ -193,10 +265,10 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
 
     while allow_recording.value:
         if (rec_number <= count_transcribe_file.value) and allow_put:
-            text_to_ai_queue.put(transcript.text)
-            print(f'добавил: {transcript.text}')
+            text_to_ai_queue.put(transcript_text)
+            print(f'добавил: {transcript_text}')
             words_for_answer = ["Ответь", "ответь", "ОТВЕТЬ", "отвечай", "Отвечай"]
-            if any(word in transcript.text for word in words_for_answer):
+            if any(word in transcript_text for word in words_for_answer):
   #              sync_log(f'Получил текст для ответа:\n{transcript.texti}')
                 text_to_ai = ""
                 while not text_to_ai_queue.empty():
@@ -217,7 +289,7 @@ def thread_transcribe(filename, rec_number, allow_put, texts_queue, text_to_ai_q
             texts_queue.get()
 
     count_transcribe_file.value += 1
-    print('transcribed', transcript.text)
+    print('transcribed', transcript_text)
 
 PROMPT = '''Ты Голосовой ассистент в групповом чате. 
 Отвечай максимально коротко, не больше 2-3 предолжений.

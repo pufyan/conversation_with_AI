@@ -1,8 +1,8 @@
 import sounddevice as sd
 import soundfile as sf
-import whisper
+from faster_whisper import WhisperModel
 
-filename = ''  # Путь к файлу, который нужно воспроизводить
+filename = 'test.wav'  # Путь к файлу, который нужно воспроизводить
 output_device = 4
 # Функция для воспроизведения аудиофайла
 print(sd.query_devices())
