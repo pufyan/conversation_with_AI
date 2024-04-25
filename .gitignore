@@ -4,3 +4,4 @@ prod/
 openv_prod/
 *.wav
 *.pyc
+*.code-workspace
